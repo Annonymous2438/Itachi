@@ -92,10 +92,10 @@ export const botConfig = {
       secondary: "#2F3136", 
 
       // Standard status colors for success/error/warning/info messages.
-      success: "#57F287", 
+      success: "#000080", 
       error: "#ED4245", 
       warning: "#FEE75C", 
-      info: "#3498DB", 
+      info: "#000080", 
 
       // Neutral utility colors.
       light: "#FFFFFF",
@@ -116,7 +116,7 @@ export const botConfig = {
         ended: "#ED4245",
       },
       ticket: {
-        open: "#57F287",
+        open: "#000080",
         claimed: "#FAA61A",
         closed: "#ED4245",
         pending: "#99AAB5",
