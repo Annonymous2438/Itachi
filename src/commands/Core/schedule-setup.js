@@ -2,28 +2,43 @@ import pkg from 'discord.js';
 const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = pkg;
 import cron from 'node-cron';
 
-// Global memory tracking system mapping message IDs to active arrays of joined users
+// Global tracking structures
+export const activeSchedules = new Map(); 
 const registrationMemory = new Map();
 
 export default {
     data: new SlashCommandBuilder()
         .setName('schedule-setup')
-        .setDescription('Set up a professional daily automated registration post.')
+        .setDescription('Set up an automated registration post with flexible day options.')
         .addStringOption(option => 
             option.setName('time')
-                .setDescription('The daily trigger time in 24-hour format (e.g., 14:30)')
+                .setDescription('The trigger time in 24-hour format (e.g., 14:30)')
                 .setRequired(true))
         .addChannelOption(option => 
             option.setName('channel')
-                .setDescription('The channel where the embed alert will be posted')
+                .setDescription('The target alert channel')
                 .setRequired(true))
+        .addStringOption(option =>
+            option.setName('frequency')
+                .setDescription('Choose when this alert should fire')
+                .setRequired(true)
+                .addChoices(
+                    { name: 'Every Single Day', value: '*' },
+                    { name: 'Mondays', value: '1' },
+                    { name: 'Tuesdays', value: '2' },
+                    { name: 'Wednesdays', value: '3' },
+                    { name: 'Thursdays', value: '4' },
+                    { name: 'Fridays', value: '5' },
+                    { name: 'Saturdays', value: '6' },
+                    { name: 'Sundays', value: '0' }
+                ))
         .addStringOption(option => 
             option.setName('title')
-                .setDescription('The header title for the registration form')
+                .setDescription('Header title for the registration form')
                 .setRequired(true))
         .addStringOption(option => 
             option.setName('message')
-                .setDescription('The description details for the registration form')
+                .setDescription('Description details for the registration form')
                 .setRequired(true)),
 
     async execute(interaction) {
@@ -31,6 +46,7 @@ export default {
 
         const timeStr = interaction.options.getString('time');
         const targetChannel = interaction.options.getChannel('channel');
+        const frequency = interaction.options.getString('frequency');
         const titleStr = interaction.options.getString('title');
         const msgStr = interaction.options.getString('message');
 
@@ -40,10 +56,20 @@ export default {
         }
 
         const [hours, minutes] = timeParts;
-        const cronExpression = `${minutes} ${hours} * * *`;
+        
+        // Dynamic Cron Expression: minutes hours * * day_of_week
+        // E.g., "30 14 * * *" for everyday, or "30 14 * * 5" for Fridays
+        const cronExpression = `${minutes} ${hours} * * ${frequency}`;
 
-        // Establish the daily cron job locked to Asia/Karachi timezone profile
-        cron.schedule(cronExpression, async () => {
+        // If an active schedule already exists for this specific channel, stop it first to prevent duplicates
+        if (activeSchedules.has(targetChannel.id)) {
+            const oldJob = activeSchedules.get(targetChannel.id);
+            oldJob.stop();
+            activeSchedules.delete(targetChannel.id);
+        }
+
+        // Initialize the new cron task
+        const scheduledJob = cron.schedule(cronExpression, async () => {
             try {
                 const embed = new EmbedBuilder()
                     .setTitle(titleStr)
@@ -67,12 +93,9 @@ export default {
                     components: [row]
                 });
 
-                // Initialize the unique array storage for this specific message instance
                 registrationMemory.set(sentMessage.id, []);
 
-                // Permanent interaction collector for handling multi-user clicks indefinitely
                 const collector = sentMessage.createMessageComponentCollector();
-
                 collector.on('collect', async btnInteraction => {
                     if (btnInteraction.customId !== 'reg_join_toggle') return;
 
@@ -81,18 +104,14 @@ export default {
                     const username = btnInteraction.user.globalName || btnInteraction.user.username;
 
                     const existingIndex = participants.findIndex(p => p.id === userId);
-
                     if (existingIndex === -1) {
-                        // User clicking first time -> Add them to list
                         participants.push({ id: userId, username: username });
                     } else {
-                        // User clicking second time -> Remove them from list
                         participants.splice(existingIndex, 1);
                     }
 
                     registrationMemory.set(sentMessage.id, participants);
 
-                    // Rebuild fields dynamically based on live array status
                     const updatedCount = participants.length.toString();
                     const updatedNames = participants.length > 0 
                         ? participants.map(p => `• ${p.username}`).join('\n')
@@ -104,20 +123,23 @@ export default {
                             { name: 'PARTICIPANTS NAMES', value: updatedNames, inline: false }
                         );
 
-                    // Modify the live message layout in-place with zero channel text spam
                     await btnInteraction.update({ embeds: [updatedEmbed] });
                 });
 
             } catch (err) {
-                console.error('Error executing automated registration cron execution:', err);
+                console.error('Error executing automated registration:', err);
             }
         }, {
             scheduled: true,
             timezone: 'Asia/Karachi'
         });
 
+        // Save the live job object into our Map configuration using the channel ID as the unique tracking key
+        activeSchedules.set(targetChannel.id, scheduledJob);
+
+        const freqLabel = frequency === '*' ? 'Everyday' : 'Scheduled Day Only';
         return interaction.editReply({ 
-            content: `✅ System operational! Daily automated posts scheduled for ${timeStr} in ${targetChannel}.` 
+            content: `✅ System online! Automated post configured (${freqLabel}) for ${timeStr} in ${targetChannel}.` 
         });
     }
 };
