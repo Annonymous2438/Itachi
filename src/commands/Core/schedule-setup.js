@@ -1,69 +1,108 @@
-import pkg from 'discord.js';
-const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = pkg;
-import cron from 'node-cron';
+import pkg from "discord.js"
+const { Client, GatewayIntentBits, Partials } = pkg
+const { ScheduledJob } = pkg
+const cron = require('cron')
 
-export default {
-  data: new SlashCommandBuilder()
-    .setName('schedule-setup')
-    .setDescription('Set up a scheduled post')
-    .addStringOption(option =>
-      option.setName('time')
-        .setDescription('The time to post in 24h format (HH:mm)')
-        .setRequired(true))
-    .addChannelOption(option =>
-      option.setName('channel')
-        .setDescription('The channel to post in')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('title')
-        .setDescription('The title of the post')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('message')
-        .setDescription('The message of the post')
-        .setRequired(true)),
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMessageTyping,
+    GatewayIntentBits.GuildScheduledEvents,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Channel, Partials.GuildMember, Partials.GuildScheduledEvent, Partials.Message, Partials.Reaction, Partials.User],
+})
 
-  async execute(interaction) {
-    const time = interaction.options.getString('time');
-    const channel = interaction.options.getChannel('channel');
-    const title = interaction.options.getString('title');
-    const message = interaction.options.getString('message');
+const participantsMap = new Map()
+const timezone = 'Asia/Karachi'
 
-    const embed = new EmbedBuilder()
+client.on('ready', () => {
+  console.log('Client is online')
+})
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand()) return
+  if (interaction.commandName === 'register') {
+    const title = interaction.options.getString('title')
+    const description = interaction.options.getString('description')
+    const channelId = interaction.channel.id
+    const messageId = interaction.id
+
+    if (!participantsMap.has(channelId)) {
+      participantsMap.set(channelId, {
+        participants: [],
+        messageId: messageId,
+      })
+    }
+
+    const newEmbed = new pkg.EmbedBuilder()
       .setTitle(title)
-      .setDescription(message);
+      .setDescription(description)
+      .addFields(
+        { name: 'TOTAL NUMBER OF PARTICIPANTS', value: '0', inline: false },
+        { name: 'PARTICIPANTS NAMES', value: 'None yet', inline: false }
+      )
+      .setFooter({ text: 'Participant Registration' })
 
-    const button = new ButtonBuilder()
-      .setLabel('Join')
-      .setStyle(ButtonStyle.Success)
-      .setCustomId('join-button');
+    const row = new pkg.ActionRowBuilder()
+      .addComponents(
+        new pkg.ButtonBuilder()
+          .setCustomId('join')
+          .setLabel('Join')
+          .setStyle(pkg.ButtonStyle.Success),
+        new pkg.ButtonBuilder()
+          .setCustomId('leave')
+          .setLabel('Leave')
+          .setStyle(pkg.ButtonStyle.Danger),
+      )
 
-    const row = new ActionRowBuilder()
-      .addComponents(button);
-
-    const targetChannel = channel;
-
-    let memberCount = 0;
-
-    const cronJob = cron.schedule(`0 ${time.split(':')[1]} ${time.split(':')[0]} * * *`, async () => {
-      const msg = await targetChannel.send({ embeds: [embed], components: [row] });
-      const collector = msg.createMessageComponentCollector({ componentType: 2, time: 86400000 });
-
-      collector.on('collect', i => {
-        if (i.customId === 'join-button') {
-          memberCount++;
-          i.reply(`You have joined! (${memberCount} members)`);
-        }
-      });
-
-      collector.on('end', collected => {
-        console.log(`Collected ${collected.size} interactions`);
-      });
-    }, {
-      scheduled: true,
-      timezone: "Asia/Karachi"
-    });
-
-    await interaction.reply(`Scheduled post set up for ${time} in ${targetChannel}!`);
+    interaction.reply({ embeds: [newEmbed], components: [row] })
   }
-};
+})
+
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isButton()) return
+  if (interaction.customId === 'join' || interaction.customId === 'leave') {
+    interaction.deferUpdate()
+    const channelId = interaction.channel.id
+    const participants = participantsMap.get(channelId)
+
+    if (!participants) return
+
+    const userId = interaction.user.id
+    const username = interaction.user.username
+
+    if (interaction.customId === 'join') {
+      if (!participants.participants.includes(userId)) {
+        participants.participants.push(userId)
+      } else {
+        participants.participants = participants.participants.filter(id => id !== userId)
+      }
+    } else if (interaction.customId === 'leave') {
+      participants.participants = participants.participants.filter(id => id !== userId)
+    }
+
+    const participantCount = participants.participants.length
+    const participantNames = participants.participants.map(userId => {
+      const user = client.users.cache.get(userId)
+      return user ? user.username : 'Unknown'
+    }).join(', ') || 'None yet'
+
+    const newEmbed = new pkg.EmbedBuilder()
+      .setTitle(interaction.message.embeds[0].title)
+      .setDescription(interaction.message.embeds[0].description)
+      .addFields(
+        { name: 'TOTAL NUMBER OF PARTICIPANTS', value: participantCount.toString(), inline: false },
+        { name: 'PARTICIPANTS NAMES', value: participantNames, inline: false }
+      )
+      .setFooter({ text: 'Participant Registration' })
+
+    interaction.update({ embeds: [newEmbed] })
+  }
+})
+
+client.login('YOUR_CLIENT_TOKEN')
