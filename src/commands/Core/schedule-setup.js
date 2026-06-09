@@ -1,6 +1,6 @@
-import { SlashCommandBuilder } from 'discord.js';
+import pkg from 'discord.js';
+const { SlashCommandBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = pkg;
 import cron from 'node-cron';
-import { Interaction, cache } from 'discord.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -8,74 +8,62 @@ export default {
     .setDescription('Set up a scheduled post')
     .addStringOption(option =>
       option.setName('time')
-        .setDescription('Time in 24h format (HH:mm)')
+        .setDescription('The time to post in 24h format (HH:mm)')
         .setRequired(true))
     .addChannelOption(option =>
       option.setName('channel')
-        .setDescription('Target channel')
+        .setDescription('The channel to post in')
         .setRequired(true))
     .addStringOption(option =>
       option.setName('title')
-        .setDescription('Embed title')
+        .setDescription('The title of the post')
         .setRequired(true))
     .addStringOption(option =>
       option.setName('message')
-        .setDescription('Embed message')
+        .setDescription('The message of the post')
         .setRequired(true)),
 
   async execute(interaction) {
     const time = interaction.options.getString('time');
-    const targetChannelId = interaction.options.getChannel('channel').id;
-    const targetChannel = interaction.client.channels.cache.get(targetChannelId);
+    const channel = interaction.options.getChannel('channel');
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
-    const memberIdSet = new Set();
 
-    const scheduledEmbed = {
-      title: title,
-      description: message,
-      fields: [
-        {
-          name: 'Joined Users',
-          value: 'None',
-          inline: false
+    const embed = new EmbedBuilder()
+      .setTitle(title)
+      .setDescription(message);
+
+    const button = new ButtonBuilder()
+      .setLabel('Join')
+      .setStyle(ButtonStyle.Success)
+      .setCustomId('join-button');
+
+    const row = new ActionRowBuilder()
+      .addComponents(button);
+
+    const targetChannel = channel;
+
+    let memberCount = 0;
+
+    constcronJob = cron.schedule(`0 ${time.split(':')[1]} ${time.split(':')[0]} * * *`, async () => {
+      const msg = await targetChannel.send({ embeds: [embed], components: [row] });
+      const collector = msg.createMessageComponentCollector({ componentType: 2, time: 86400000 });
+
+      collector.on('collect', i => {
+        if (i.customId === 'join-button') {
+          memberCount++;
+          i.reply(`You have joined! (${memberCount} members)`);
         }
-      ]
-    };
+      });
 
-    const joinButton = {
-      type: 1,
-      components: [
-        {
-          type: 2,
-          style: 1,
-          customId: 'joinButton',
-          label: 'Join'
-        }
-      ]
-    };
-
-    cron.schedule(time, async () => {
-      const embed = {
-        title: scheduledEmbed.title,
-        description: scheduledEmbed.description,
-        fields: scheduledEmbed.fields
-      };
-
-      await targetChannel.send({ embeds: [embed], components: [joinButton] })
-        .then(message => {
-          interaction.client.on('interactionCreate', async interaction => {
-            if (interaction.isButton() && interaction.customId === 'joinButton') {
-              if (!memberIdSet.has(interaction.user.id)) {
-                memberIdSet.add(interaction.user.id);
-                embed.fields[0].value = Array.from(memberIdSet).map(id => `<@${id}>`).join(', ');
-                await message.edit({ embeds: [embed], components: [joinButton] });
-              }
-            }
-          });
-        });
+      collector.on('end', collected => {
+        console.log(`Collected ${collected.size} interactions`);
+      });
+    }, {
+      scheduled: true,
+      timezone: "America/New_York"
     });
 
-    await interaction.reply('Scheduled post set up successfully');
+    await interaction.reply(`Scheduled post set up for ${time} in ${targetChannel}!`);
   }
 };
