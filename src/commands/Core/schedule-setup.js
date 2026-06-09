@@ -61,7 +61,7 @@ export default {
       });
     }, {
       scheduled: true,
-      timezone: "America/New_York"
+      timezone: "Asia/Karachi"
     });
 
     await interaction.reply(`Scheduled post set up for ${time} in ${targetChannel}!`);
