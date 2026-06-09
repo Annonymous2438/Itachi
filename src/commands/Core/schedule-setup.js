@@ -45,7 +45,7 @@ export default {
 
     let memberCount = 0;
 
-    constcronJob = cron.schedule(`0 ${time.split(':')[1]} ${time.split(':')[0]} * * *`, async () => {
+    const cronJob = cron.schedule(`0 ${time.split(':')[1]} ${time.split(':')[0]} * * *`, async () => {
       const msg = await targetChannel.send({ embeds: [embed], components: [row] });
       const collector = msg.createMessageComponentCollector({ componentType: 2, time: 86400000 });
 
